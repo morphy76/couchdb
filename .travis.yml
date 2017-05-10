@@ -1,17 +1,67 @@
-before_install:
-   - sudo apt-get -y update
-   - sudo apt-get -y install libicu-dev libmozjs185-dev pkg-config help2man libcurl4-openssl-dev
-   - sudo apt-get -y install libtool automake autoconf autoconf-archive
-   - sudo apt-get -y install shunit2
-before_script: ./configure -c --disable-docs --disable-fauxton
-script:
-   - make check
 language: erlang
+sudo: false
+
+os: linux
 otp_release:
-   - 18.1
-   - 18.0
+   - 19.3
+   - 18.3
    - 17.5
    - R16B03-1
+
+addons:
+  apt:
+    packages:
+    - build-essential
+    - curl
+    - libcurl4-openssl-dev
+    - libicu-dev
+    - libmozjs185-dev
+    - pkg-config
+    - python-requests
+    - python-sphinx
+    - help2man
+    - shunit2
+
+python:
+  - "2.7"
+
 git:
   depth: 10
-cache: apt
+
+# logfile uploader uses requests
+cache:
+  - pip
+
+# logfile uploader credentials
+env:
+  global:
+    - secure: "UdA/gKIlyuXaW+hUgRx40t1TYjLCGxMqHvM5Uw7UbUH2dqEkgJiLfhZGchS1JVzl8M01VKZUUzS7v2nvRLiHZN1kvaw5kfq31VRoafUah8jfmvqNWZVdLovHl3aw5UX/HRt0RkbWbhdbdknTfh6+YinSZ+Nb54jCErMg9nabXtM="
+
+# Enable this block if you want to build docs & fauxton too
+#node_js:
+#  - 6
+#before_script:
+#  - ./configure -c
+
+# Then comment this section out
+before_script:
+  - ./configure -c --disable-docs --disable-fauxton
+
+script:
+   - make check
+
+after_failure:
+  - build-aux/logfile-uploader.py
+
+# Re-enable once test suite is reliable
+#notifications:
+#  email: false
+#  irc:
+#    channels:
+#      "irc.freenode.org#couchdb-dev"
+#  on_success: change
+#  on_failure: always
+#  use_notice: true
+#  skip_join: true
+#  template:
+#    - %{repository_slug}/%{branch}: %{message} %{build_url}"
