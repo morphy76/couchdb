@@ -107,7 +107,7 @@ check_active_tasks(RepPid, {BaseId, Ext} = _RepId, Src, Tgt) ->
     end,
     FullRepId = ?l2b(BaseId ++ Ext),
     Pid = ?l2b(pid_to_list(RepPid)),
-    ok = wait_for_replicator(RepId),
+    ok = wait_for_replicator(RepPid),
     RepTasks = wait_for_task_status(),
     ?assertNotEqual(timeout, RepTasks),
     [RepTask] = RepTasks,
