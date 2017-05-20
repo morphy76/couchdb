@@ -92,7 +92,7 @@ should_run_replication(RepPid, RepId, Source, Target) ->
 should_ensure_replication_still_running(RepPid, RepId, Source, Target) ->
     ?_test(check_active_tasks(RepPid, RepId, Source, Target)).
 
-check_active_tasks(RepPid, {BaseId, Ext} = _RepId, Src, Tgt) ->
+check_active_tasks(RepPid, {BaseId, Ext} = RepId, Src, Tgt) ->
     Source = case Src of
         {remote, NameSrc} ->
             <<(db_url(NameSrc))/binary, $/>>;
@@ -135,13 +135,18 @@ wait_for_replicator(Pid) ->
 
 wait_for_task_status() ->
     test_util:wait(fun() ->
-        case couch_task_status:all() of
+        case replication_tasks() of
             [] ->
                 wait;
             Tasks ->
                 Tasks
         end
     end).
+
+replication_tasks() ->
+    lists:filter(fun(P) ->
+        couch_util:get_value(type, P) =:= replication
+    end, couch_task_status:all()).
 
 should_cancel_replication(RepId, RepPid) ->
     ?_assertNot(begin
