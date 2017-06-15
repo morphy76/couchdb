@@ -43,6 +43,7 @@ def collect_logfiles():
         tb.add(log)
     # couchjs OS process IO logs
     for log in glob.glob('/tmp/couchjslogs/*'):
+        print ("Uploading OS process IO log", log)
         tb.add(log)
     tb.close()
 
