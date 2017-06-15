@@ -55,7 +55,6 @@ pipeline {
        their build results to each other during the build. Moving the
        build outside of the workdir should speed up the build process too,
        though it does mean we pollute /tmp whenever a build fails. */
-/* COMMENTED OUT FOR SPEED-TESTING!!! 
     stage('Test') {
       steps {
         parallel(centos6erlang183: {
@@ -301,7 +300,6 @@ pipeline {
         ) // parallel
       } // steps
     } // stage
-END OF COMMENT BLOCK */
 
     stage('Publish') {
       when {
