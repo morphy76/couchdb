@@ -22,7 +22,8 @@
 
 -record(entry, {
     key,
-    val
+    val,
+    pid
 }).
 
 -record(opener, {

@@ -20,6 +20,8 @@
 
     insert/2,
     accessed/1,
+    refresh/2,
+    remove/1,
     evict/2
 ]).
 
@@ -61,6 +63,14 @@ accessed(Key) ->
     gen_server:cast(?MODULE, {accessed, Key}).
 
 
+refresh(Key, Val) ->
+    gen_server:call(?MODULE, {refresh, Key, Val}).
+
+
+remove(Key) ->
+    gen_server:call(?MODULE, {remove, Key}).
+
+
 -spec evict(dbname(), [docid()]) -> ok.
 evict(DbName, DDocIds) ->
     gen_server:cast(?MODULE, {evict, DbName, DDocIds}).
@@ -97,11 +107,50 @@ handle_call({insert, Key, Val}, _From, St) ->
         time = Time
     } = St,
     NewTime = Time + 1,
-    true = ets:insert(?CACHE, #entry{key = Key, val = Val}),
+    Pid = ddoc_cache_refresher:spawn(Key),
+    true = ets:insert(?CACHE, #entry{key = Key, val = Val, pid = Pid}),
     true = ets:insert(?ATIMES, {NewTime, Key}),
     ok = khash:put(Keys, NewTime),
     store_key(Dbs, Key),
     {reply, ok, trim(St#st{time = NewTime})};
+
+handle_call({refresh, Key, Val}, _From, St) ->
+    #st{
+        keys = Keys
+    } = St,
+    case khash:lookup(Keys, Key) of
+        {value, _} ->
+            ets:update_element(?CACHE, Key, {#entry.val, Val}),
+            {reply, ok, St};
+        not_found ->
+            {reply, evicted, St}
+    end;
+
+handle_call({remove, Key}, _From, St) ->
+    #st{
+        keys = TimeKeys,
+        dbs = Dbs
+    } = St,
+    case khash:lookup(TimeKeys, Key) of
+        {value, ATime} ->
+            remove_entry(St, Key, ATime),
+            DbName = ddoc_cache_entry:dbname(Key),
+            DDocId = ddoc_cache_entry:ddocid(Key),
+            {value, DDocIds} = khash:lookup(Dbs, DbName),
+            {value, Keys} = khash:lookup(DDocIds, DDocId),
+            ok = khash:del(Keys, Key),
+            case khash:size(Keys) of
+                0 -> khash:del(DDocIds, DDocId);
+                _ -> ok
+            end,
+            case khash:size(DDocIds) of
+                0 -> khash:del(Dbs, DDocId);
+                _ -> ok
+            end;
+        not_found ->
+            ok
+    end,
+    {reply, ok, St};
 
 handle_call(Msg, _From, St) ->
     {stop, {invalid_call, Msg}, {invalid_call, Msg}, St}.
@@ -115,6 +164,8 @@ handle_cast({accessed, Key}, St) ->
     NewTime = Time + 1,
     case khash:lookup(Keys, Key) of
         {value, OldTime} ->
+            [#entry{pid = Pid}] = ets:lookup(?CACHE, Key),
+            true = is_process_alive(Pid),
             true = ets:delete(?ATIMES, OldTime),
             true = ets:insert(?ATIMES, {NewTime, Key}),
             ok = khash:put(Keys, NewTime);
@@ -135,15 +186,15 @@ handle_cast({evict, _, _} = Msg, St) ->
 
 handle_cast({do_evict, DbName}, St) ->
     #st{
-        keys = KeyTimes,
         dbs = Dbs
     } = St,
     case khash:lookup(Dbs, DbName) of
         {value, DDocIds} ->
             khash:fold(DDocIds, fun(_, Keys, _) ->
                 khash:fold(Keys, fun(Key, _, _) ->
-                    {value, Time} = khash:lookup(KeyTimes, Key),
-                    remove(St, Time)
+                    [#entry{pid = Pid}] = ets:lookup(?CACHE, Key),
+                    ddoc_cache_refresher:stop(Pid),
+                    remove_entry(St, Key)
                 end, nil)
             end, nil),
             khash:del(Dbs, DbName);
@@ -154,7 +205,6 @@ handle_cast({do_evict, DbName}, St) ->
 
 handle_cast({do_evict, DbName, DDocIds}, St) ->
     #st{
-        keys = KeyTimes,
         dbs = Dbs
     } = St,
     case khash:lookup(Dbs, DbName) of
@@ -163,8 +213,9 @@ handle_cast({do_evict, DbName, DDocIds}, St) ->
                 case khash:lookup(DDocIds, DDocId) of
                     {value, Keys} ->
                         khash:fold(Keys, fun(Key, _, _) ->
-                            {value, Time} = khash:lookup(KeyTimes, Key),
-                            remove(St, Time)
+                            [#entry{pid = Pid}] = ets:lookup(?CACHE, Key),
+                            ddoc_cache_refresher:stop(Pid),
+                            remove_entry(St, Key)
                         end, nil);
                     not_found ->
                         ok
@@ -239,21 +290,29 @@ trim(St) ->
         true ->
             case ets:first(?ATIMES) of
                 '$end_of_table' ->
-                    St;
+                    ok;
                 ATime ->
-                    trim(remove(St, ATime))
+                    [{ATime, Key}] = ets:lookup(?ATIMES, ATime),
+                    remove_entry(St, Key, ATime),
+                    trim(St)
             end;
         false ->
-            St
+            ok
     end.
 
 
-remove(St, ATime) ->
+remove_entry(St, Key) ->
     #st{
         keys = Keys
     } = St,
-    {value, Key} = khash:lookup(Keys, ATime),
+    {value, ATime} = khash:lookup(Keys, Key),
+    remove_entry(St, Key, ATime).
+
+
+remove_entry(St, Key, ATime) ->
+    #st{
+        keys = Keys
+    } = St,
     true = ets:delete(?CACHE, Key),
     true = ets:delete(?ATIMES, ATime),
-    ok = khash:del(Keys, Key),
-    St.
+    ok = khash:del(Keys, Key).
