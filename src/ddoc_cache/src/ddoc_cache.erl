@@ -91,7 +91,7 @@ open_custom(DbName, Mod) ->
 
 evict(ShardDbName, DDocIds) ->
     DbName = mem3:dbname(ShardDbName),
-    ddoc_cache_opener:evict_docs(DbName, DDocIds).
+    ddoc_cache_lru:evict(DbName, DDocIds).
 
 open(DbName, validation_funs) ->
     open_validation_funs(DbName);
