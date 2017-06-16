@@ -87,7 +87,10 @@ log_name() ->
 
 close_logs() ->
     file:close(get(logger_out_fd)),
-    file:close(get(logger_in_fd)).
+    file:close(get(logger_in_fd)),
+    erase(logger_path),
+    erase(logger_out_fd),
+    erase(logger_in_fd).
 
 
 save_error_logs(Path, Err) ->
@@ -98,8 +101,8 @@ save_error_logs(Path, Err) ->
     OFd = get(logger_in_fd),
     file:position(IFd, 0),
     file:position(OFd, 0),
-    file:copy(IFd, Path ++  ".out.log"),
-    file:copy(OFd, Path ++ ".in.log"),
+    file:copy(IFd, Path ++  ".in.log"),
+    file:copy(OFd, Path ++ ".out.log"),
     couch_log:error("XXXXXXXXXXXXXXXXX saved error log ~p ~p", [Path, Err]).
 
 

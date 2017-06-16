@@ -204,8 +204,10 @@ handle_call({prompt, Data}, _From, #os_proc{idle=Idle}=OsProc) ->
         throw:{error, OsError} ->
             {reply, OsError, OsProc, Idle};
         throw:{fatal, OsError} ->
+            couch_io_logger:stop_error(OsError),
             {stop, normal, OsError, OsProc};
         throw:OtherError ->
+            couch_io_logger:stop_error(OtherError),
             {stop, normal, OtherError, OsProc}
     after
         garbage_collect()
@@ -218,6 +220,7 @@ handle_cast({send, Data}, #os_proc{writer=Writer, idle=Idle}=OsProc) ->
     catch
         throw:OsError ->
             couch_log:error("Failed sending data: ~p -> ~p", [Data, OsError]),
+            couch_io_logger:stop_error(OsError),
             {stop, normal, OsProc}
     end;
 handle_cast(garbage_collect, #os_proc{idle=Idle}=OsProc) ->
