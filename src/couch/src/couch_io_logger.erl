@@ -37,6 +37,7 @@ start(Dir) ->
             put(logger_path, Path),
             put(logger_out_fd, OFd),
             put(logger_in_fd, IFd),
+            couch_log:error("XXXXXXXXXXXXXXXX started couch io logging ~p", [Path]),
             ok;
         false ->
             ok
@@ -98,7 +99,8 @@ save_error_logs(Path, Err) ->
     file:position(IFd, 0),
     file:position(OFd, 0),
     file:copy(IFd, Path ++  ".out.log"),
-    file:copy(OFd, Path ++ ".in.log").
+    file:copy(OFd, Path ++ ".in.log"),
+    couch_log:error("XXXXXXXXXXXXXXXXX saved error log ~p ~p", [Path, Err]).
 
 
 log(undefined, _Data) ->
