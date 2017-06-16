@@ -40,7 +40,7 @@ init(_) ->
     BaseOpts = [public, named_table],
     ets:new(?CACHE, [set, {read_concurrency, true}] ++ BaseOpts),
     ets:new(?ATIMES, [sorted_set] ++ BaseOpts),
-    ets:new(?OPENING, [set, {keypos, #opener.key}] ++ BaseOpts),
+    ets:new(?OPENERS, [set, {keypos, #opener.key}] ++ BaseOpts),
     {ok, nil}.
 
 

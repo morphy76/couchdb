@@ -20,7 +20,6 @@
 
     insert/2,
     accessed/1,
-    evict/1,
     evict/2
 ]).
 
@@ -42,7 +41,8 @@
 
 
 -record(st, {
-    keys,
+    keys, % key -> time
+    dbs, % dbname -> docid -> key -> []
     time,
     max_size,
     evictor
@@ -54,7 +54,7 @@ start_link() ->
 
 
 insert(Key, Val) ->
-    gen_server:call(?MODULE, {insert, Key}).
+    gen_server:call(?MODULE, {insert, Key, Val}).
 
 
 accessed(Key) ->
@@ -68,12 +68,14 @@ evict(DbName, DDocIds) ->
 
 init(_) ->
     {ok, Keys} = khash:new(),
+    {ok, Dbs} = khash:new(),
     {ok, Evictor} = couch_event:link_listener(
             ?MODULE, handle_db_event, nil, [all_dbs]
         ),
     MaxSize = config:get_integer("ddoc_cache", "max_size", 1000),
     {ok, #st{
         keys = Keys,
+        dbs = Dbs,
         time = 0,
         max_size = MaxSize,
         evictor = Evictor
@@ -91,19 +93,21 @@ terminate(_Reason, St) ->
 handle_call({insert, Key, Val}, _From, St) ->
     #st{
         keys = Keys,
+        dbs = Dbs,
         time = Time
     } = St,
     NewTime = Time + 1,
     true = ets:insert(?CACHE, #entry{key = Key, val = Val}),
     true = ets:insert(?ATIMES, {NewTime, Key}),
     ok = khash:put(Keys, NewTime),
+    store_key(Dbs, Key),
     {reply, ok, trim(St#st{time = NewTime})};
 
 handle_call(Msg, _From, St) ->
     {stop, {invalid_call, Msg}, {invalid_call, Msg}, St}.
 
 
-handle_cast({accessed, Key}, _St) ->
+handle_cast({accessed, Key}, St) ->
     #st{
         keys = Keys,
         time = Time
@@ -129,36 +133,51 @@ handle_cast({evict, _, _} = Msg, St) ->
     gen_server:abcast(mem3:nodes(), ?MODULE, Msg),
     {noreply, St};
 
-handle_cast({do_evict, DbName} = Msg, St) ->
-    Pattern = #entry{
-        key = {DbName, '$1', '_'},
-        val = '_',
-        _ = '_'
-    },
-    DDocIds = lists:flatten(ets:match(?CACHE, Pattern)),
-    handle_cast({do_evict, DbName, DDocIds});
+handle_cast({do_evict, DbName}, St) ->
+    #st{
+        keys = KeyTimes,
+        dbs = Dbs
+    } = St,
+    case khash:lookup(Dbs, DbName) of
+        {value, DDocIds} ->
+            khash:fold(DDocIds, fun(_, Keys, _) ->
+                khash:fold(Keys, fun(Key, _, _) ->
+                    {value, Time} = khash:lookup(KeyTimes, Key),
+                    remove(St, Time)
+                end, nil)
+            end, nil),
+            khash:del(Dbs, DbName);
+        not_found ->
+            ok
+    end,
+    {noreply, St};
 
 handle_cast({do_evict, DbName, DDocIds}, St) ->
-    Pattern = #entry{
-        key = {DbName, '$1'},
-        val = '_',
-        _ = '_'
-    },
-    CustomKeys = lists:flatten(ets:match(?CACHE, Pattern)),
-    lists:foreach(fun(Mod) ->
-        ets:delete(?CACHE, {DbName, Mod})
-    end, CustomKeys),
-    lists:foreach(fun(DDocId) ->
-        RevPattern = #entry{
-            key = {DbName, DDocId, '$1'},
-            val = '_',
-            _ = '_'
-        },
-        Revs = lists:flatten(ets:match(?CACHE, RevPattern)),
-        lists:foreach(fun(Rev) ->
-            ets:delete(?CACHE, {DbName, DDocId, Rev})
-        end, Revs)
-    end, DDocIds),
+    #st{
+        keys = KeyTimes,
+        dbs = Dbs
+    } = St,
+    case khash:lookup(Dbs, DbName) of
+        {value, DDocIds} ->
+            lists:foreach(fun(DDocId) ->
+                case khash:lookup(DDocIds, DDocId) of
+                    {value, Keys} ->
+                        khash:fold(Keys, fun(Key, _, _) ->
+                            {value, Time} = khash:lookup(KeyTimes, Key),
+                            remove(St, Time)
+                        end, nil);
+                    not_found ->
+                        ok
+                end,
+                khash:del(DDocIds, DDocId)
+            end, [no_ddocid | DDocIds]),
+            case khash:size(DDocIds) of
+                0 -> khash:del(Dbs, DbName);
+                _ -> ok
+            end;
+        not_found ->
+            ok
+    end,
     {noreply, St};
 
 handle_cast(Msg, St) ->
@@ -190,6 +209,25 @@ handle_db_event(ShardDbName, deleted, St) ->
 
 handle_db_event(_DbName, _Event, St) ->
     {ok, St}.
+
+
+store_key(Dbs, Key) ->
+    DbName = ddoc_cache_entry:dbname(Key),
+    DDocId = ddoc_cache_entry:ddocid(Key),
+    case khash:lookup(Dbs, DbName) of
+        {value, DDocIds} ->
+            case khash:lookup(DDocIds, DDocId) of
+                {value, Keys} ->
+                    khash:put(Keys, Key, []);
+                not_found ->
+                    {ok, Keys} = khash:from_list([{Key, []}]),
+                    khash:put(DDocIds, DDocId, Keys)
+            end;
+        not_found ->
+            {ok, Keys} = khash:from_list([{Key, []}]),
+            {ok, DDocIds} = khash:from_list([{DDocId, Keys}]),
+            khash:put(Dbs, DDocId, DDocIds)
+    end.
 
 
 trim(St) ->

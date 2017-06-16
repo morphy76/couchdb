@@ -10,30 +10,28 @@
 % License for the specific language governing permissions and limitations under
 % the License.
 
-{application, ddoc_cache, [
-    {description, "Design Document Cache"},
-    {vsn, git},
-    {modules, [
-        ddoc_cache,
-        ddoc_cache_app,
-        ddoc_cache_opener,
-        ddoc_cache_sup,
-        ddoc_cache_util
-    ]},
-    {registered, [
-        ddoc_cache_tables,
-        ddoc_cache_lru,
-        ddoc_cache_opener
-    ]},
-    {applications, [
-        kernel,
-        stdlib,
-        crypto,
-        couch_event,
-        mem3,
-        fabric,
-        couch_log,
-        couch_stats
-    ]},
-    {mod, {ddoc_cache_app, []}}
-]}.
+-module(ddoc_cache_entry_ddocid_rev).
+
+
+-export([
+    dbname/1,
+    ddocid/1,
+    recover/1
+]).
+
+
+-include_lib("couch/include/couch_db.hrl").
+
+
+dbname({DbName, _, _}) ->
+    DbName.
+
+
+ddocid({_, DDocId, _}) ->
+    DDocId.
+
+
+recover({DbName, DDocId, Rev}) ->
+    Opts = [ejson_body, ?ADMIN_CTX],
+    {ok, [Resp]} = fabric:open_revs(DbName, DDocId, [Rev], Opts),
+    Resp.

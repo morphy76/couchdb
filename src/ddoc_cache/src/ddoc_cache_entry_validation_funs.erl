@@ -10,30 +10,30 @@
 % License for the specific language governing permissions and limitations under
 % the License.
 
-{application, ddoc_cache, [
-    {description, "Design Document Cache"},
-    {vsn, git},
-    {modules, [
-        ddoc_cache,
-        ddoc_cache_app,
-        ddoc_cache_opener,
-        ddoc_cache_sup,
-        ddoc_cache_util
-    ]},
-    {registered, [
-        ddoc_cache_tables,
-        ddoc_cache_lru,
-        ddoc_cache_opener
-    ]},
-    {applications, [
-        kernel,
-        stdlib,
-        crypto,
-        couch_event,
-        mem3,
-        fabric,
-        couch_log,
-        couch_stats
-    ]},
-    {mod, {ddoc_cache_app, []}}
-]}.
+-module(ddoc_cache_entry_validation_funs).
+
+
+-export([
+    dbname/1,
+    ddocid/1,
+    recover/1
+]).
+
+
+dbname(DbName) ->
+    DbName.
+
+
+ddocid(_) ->
+    no_ddocid.
+
+
+recover(DbName) ->
+    {ok, DDocs} = fabric:design_docs(mem3:dbname(DbName)),
+    Funs = lists:flatmap(fun(DDoc) ->
+        case couch_doc:get_validate_doc_fun(DDoc) of
+            nil -> [];
+            Fun -> [Fun]
+        end
+    end, DDocs),
+    {ok, Funs}.
